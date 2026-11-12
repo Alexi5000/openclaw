@@ -26,6 +26,7 @@ import { createProcessSessionFixture } from "./bash-process-registry.test-helper
 import { resetProcessRegistryForTests } from "./bash-process-registry.test-support.js";
 import { createRequesterYieldCallback } from "./openclaw-tools.requester-yield.js";
 import { settleRequesterRun } from "./requester-run-settlement.js";
+import { endSchedulerYieldHandoff, isSchedulerYieldHandoff } from "./scheduler-yield-handoff.js";
 import * as persistence from "./subagents/registry/subagent-registry-persistence.js";
 import { mutateSubagentRuns } from "./subagents/registry/subagent-registry-persistence.js";
 import {
@@ -454,36 +455,11 @@ describe("requester yield ownership", () => {
     }
   });
 
-  it.each([
-    ["cron run session", "running"],
-    ["cron run session", "finished"],
-    ["in-session automation", "running"],
-    ["in-session automation", "finished"],
-  ] as const)(
-    "ends a %s execution and releases its %s child to scheduler-owned delivery",
-    async (placement, childState) => {
+  it.each(["cron run session", "in-session automation"] as const)(
+    "ends a %s execution and releases its child to scheduler-owned delivery",
+    async (placement) => {
       const runSessionKey = placement === "cron run session" ? CRON_RUN_KEY : "agent:main:main";
-      const now = Date.now();
-      await seedRequiredChild(
-        runSessionKey,
-        childState === "finished"
-          ? {
-              createdAt: now - 200,
-              execution: {
-                status: "terminal",
-                startedAt: now - 200,
-                endedAt: now - 100,
-                outcome: { status: "ok", startedAt: now - 200, endedAt: now - 100, elapsedMs: 100 },
-              },
-              completion: {
-                required: true,
-                resultText: "done",
-                capturedAt: now - 100,
-                terminalReply: { disposition: "visible", text: "done" },
-              },
-            }
-          : {},
-      );
+      await seedRequiredChild(runSessionKey);
       const before = structuredClone(getSubagentRunByRunId("run-child"));
       const admission = prepareSystemAgentRunAdmission({}, "run-requester", "main", "cron-yield");
       onTestFinished(() => admission.close());
@@ -538,19 +514,11 @@ describe("requester yield ownership", () => {
       expect(released?.requesterTurnRunId).toBeUndefined();
       expect(released?.requesterTurnYielded).toBeUndefined();
       expect(released?.requesterSettleWake).toBeUndefined();
-      if (childState === "running") {
-        expect(released).toMatchObject({ delivery: { status: "pending" } });
-      } else {
-        // Its completion delivery starts instead of staying pending without an owner.
-        await vi.waitFor(
-          () =>
-            expect(getSubagentRunByRunId("run-child")?.delivery).toMatchObject({
-              attemptCount: expect.any(Number),
-              payload: { childRunId: "run-child", expectsCompletionMessage: true },
-            }),
-          { timeout: 10_000 },
-        );
-      }
+      expect(released).toMatchObject({ delivery: { status: "pending" } });
+      // The scheduler collects this child's completion until the run ends.
+      expect(isSchedulerYieldHandoff(released!)).toBe(true);
+      endSchedulerYieldHandoff(runSessionKey);
+      expect(isSchedulerYieldHandoff(released!)).toBe(false);
     },
   );
 

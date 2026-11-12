@@ -7,6 +7,7 @@ import {
   createAgentRunRestartAbortError,
   resolveAgentRunErrorLifecycleFields,
 } from "../../agents/run-termination.js";
+import { endSchedulerYieldHandoff } from "../../agents/scheduler-yield-handoff.js";
 import { createAgentLifecycleTerminalBackstop } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
 import { cleanupBrowserSessionsForLifecycleEnd } from "../../browser-lifecycle-cleanup.js";
 import { selectLiveRuntimeConfig } from "../../config/runtime-snapshot.js";
@@ -649,6 +650,7 @@ async function runCronIsolatedAgentTurnInTrace(
                         runContextOwnerToken,
                       });
                     } finally {
+                      endSchedulerYieldHandoff(prepared.context.runSessionKey);
                       prepared.context.sessionPreparationEffect.release();
                     }
                   } finally {

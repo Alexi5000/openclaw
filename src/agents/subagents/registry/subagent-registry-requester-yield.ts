@@ -689,16 +689,10 @@ export async function settleRequesterTurnAfterSessionSpawns(params: {
         params.schedule(entries[0]!.runId, entries[0]!, "settle");
       } else if (!params.requesterYielded) {
         // A terminal child cannot wake while its requester still owns the turn.
-        // Once a normal parent response settles, resume its original per-child delivery:
-        // its armed wake, or its completion flow when it finished without one.
+        // Once a normal parent response settles, resume its original per-child delivery.
         for (const entry of entries) {
-          if (!params.runs.has(entry.runId)) {
-            continue;
-          }
-          if (entry.requesterSettleWake) {
+          if (params.runs.has(entry.runId)) {
             params.schedule(entry.runId, entry, "settle");
-          } else if (entry.completionTarget !== "parent") {
-            params.schedule(entry.runId, entry, "completion");
           }
         }
       }

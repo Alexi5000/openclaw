@@ -10,6 +10,7 @@ import type { EmbeddedAgentRunResult } from "./embedded-agent-runner/types.js";
 import { recordModelFallbackStop } from "./failover-error.js";
 import { isSchedulerOwnedRequesterYield } from "./openclaw-tools.requester-yield.js";
 import { createSessionPlacementSettlementClosedAbortError } from "./run-termination.js";
+import { beginSchedulerYieldHandoff } from "./scheduler-yield-handoff.js";
 import {
   markRequesterTurnYielded,
   settleRequesterAfterSessionSpawns,
@@ -109,13 +110,22 @@ export async function settleRequesterRun(
     },
   };
   requester.assertCurrent();
-  // An automation yield records no requester claim, so it settles as an ordinary turn end.
-  const requesterYielded =
+  const schedulerOwnedYield =
     result.meta.yielded === true &&
-    !isSchedulerOwnedRequesterYield({
+    isSchedulerOwnedRequesterYield({
       requesterSessionKey: params.sessionKey,
       scheduledToolTargets: readScheduledToolTargets({ operationalRunInstance: instance }),
     });
+  // An automation yield records no requester claim, so it settles as an ordinary turn end.
+  const requesterYielded = result.meta.yielded === true && !schedulerOwnedYield;
+  if (schedulerOwnedYield) {
+    // The scheduler holds the run session while it waits for these children; their
+    // completions hand off to it before the release below can make them deliverable.
+    beginSchedulerYieldHandoff(
+      params.sessionKey,
+      (result.acceptedSessionSpawns ?? []).map((spawn) => spawn.runId),
+    );
+  }
   try {
     if (result.meta.continuationPending) {
       // The outbox transfers this batch only after its waiting status is delivered.

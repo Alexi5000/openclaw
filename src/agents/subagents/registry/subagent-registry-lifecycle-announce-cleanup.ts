@@ -5,6 +5,7 @@ import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-requ
 import { defaultRuntime } from "../../../runtime.js";
 import { retireSessionControllerInput } from "../../../sessions/session-controller.mailbox.js";
 import { normalizeDeliveryContext } from "../../../utils/delivery-context.shared.js";
+import { isSchedulerYieldHandoff } from "../../scheduler-yield-handoff.js";
 import { resolveSubagentRequesterAgentId } from "../../subagent-requester-owner.js";
 import { reserveSubagentCompletionControllerSource } from "../announce/subagent-announce-controller-source.js";
 import { loadSessionEntryByKey } from "../announce/subagent-announce-delivery.runtime.js";
@@ -339,7 +340,11 @@ export const startSubagentAnnounceCleanupFlow = (
   const requesterSettleGeneration = entry.requesterSettleWake?.rearmGeneration;
   const requesterOwnsCompletion = () => {
     assertCurrent();
-    return entry.requesterTurnYielded === true || hasRequesterCompletionCohort(entry);
+    return (
+      entry.requesterTurnYielded === true ||
+      hasRequesterCompletionCohort(entry) ||
+      isSchedulerYieldHandoff(entry)
+    );
   };
   // Existing cohort ownership blocks competing sends but does not settle this attempt's delivery.
   const requesterTookCompletion = (current: SubagentRunRecord) =>
